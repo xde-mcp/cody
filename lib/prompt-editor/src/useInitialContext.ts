@@ -14,8 +14,8 @@ export function useDefaultContextForChat(): DefaultContext {
         return c
     }
 
-    const defaultContext = useExtensionAPI().defaultContext
-    return useObservable(useMemo(() => defaultContext(), [defaultContext])).value ?? EMPTY
+    const extensionAPI = useExtensionAPI()
+    return useObservable(useMemo(() => extensionAPI.defaultContext(), [extensionAPI])).value ?? EMPTY
 }
 
 const EMPTY: DefaultContext = {
