@@ -120,6 +120,7 @@ export const HumanMessageEditor: FunctionComponent<{
           ? 'emptyEditorValue'
           : 'submittable'
 
+    // TODO: Finish implementing "current repo not indexed" handling for v2 editor
     const experimentalPromptEditorEnabled = useFeatureFlag(FeatureFlag.CodyExperimentalPromptEditor)
     const experimentalOneBoxEnabled = useExperimentalOneBox()
     const [submitIntent, setSubmitIntent] = useState<ChatMessage['intent'] | undefined>(
@@ -402,7 +403,10 @@ export const HumanMessageEditor: FunctionComponent<{
                 if (currentChatModel?.tags?.includes(ModelTag.StreamDisabled)) {
                     initialContext = initialContext.filter(item => item.type !== 'tree')
                 }
-                void editor.setInitialContextMentions(initialContext.filter(item => item.type !== 'tree' || item.isIndexedRemotely))
+                // If the current repo is not indexed remotely, then skip it.
+                // TODO: Make this behavior flip *off* for non-Enterprise cases.
+                const filteredItems = initialContext.filter(item => item.type !== 'tree' || item.isIndexedRemotely)
+                void editor.setInitialContextMentions(filteredItems)
             }
         }
     }, [defaultContext, isSent, isFirstMessage, currentChatModel])
@@ -452,6 +456,7 @@ export const HumanMessageEditor: FunctionComponent<{
                 contextWindowSizeInTokens={contextWindowSizeInTokens}
                 editorClassName={styles.editor}
                 contentEditableClassName={styles.editorContentEditable}
+                openExternalLink={(uri: string) => window.alert(`would navigate to: ${uri}`)}
             />
             {!disabled && (
                 <Toolbar
