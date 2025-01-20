@@ -34,6 +34,7 @@ import { promptModeToIntent } from '../../../../../prompts/PromptsTab'
 import { useTelemetryRecorder } from '../../../../../utils/telemetry'
 import { useExperimentalOneBox } from '../../../../../utils/useExperimentalOneBox'
 import { useFeatureFlag } from '../../../../../utils/useFeatureFlags'
+import { useLinkOpener } from '../../../../../utils/useLinkOpener'
 import styles from './HumanMessageEditor.module.css'
 import type { SubmitButtonState } from './toolbar/SubmitButton'
 import { Toolbar } from './toolbar/Toolbar'
@@ -423,6 +424,13 @@ export const HumanMessageEditor: FunctionComponent<{
         currentChatModel?.contextWindow?.context?.user ||
         currentChatModel?.contextWindow?.input ||
         FAST_CHAT_INPUT_TOKEN_BUDGET
+
+    const linkOpener = useLinkOpener()
+    const openExternalLink = useCallback(
+        (uri: string) => linkOpener?.openExternalLink(uri),
+        [linkOpener]
+    )
+
     const Editor = experimentalPromptEditorEnabled ? PromptEditorV2 : PromptEditor
 
     return (
@@ -455,7 +463,7 @@ export const HumanMessageEditor: FunctionComponent<{
                 contextWindowSizeInTokens={contextWindowSizeInTokens}
                 editorClassName={styles.editor}
                 contentEditableClassName={styles.editorContentEditable}
-                openExternalLink={(uri: string) => window.alert(`would navigate to: ${uri}`)}
+                openExternalLink={openExternalLink}
             />
             {!disabled && (
                 <Toolbar
