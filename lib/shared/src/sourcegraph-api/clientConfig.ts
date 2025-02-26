@@ -217,16 +217,14 @@ export class ClientConfigSingleton {
                 signal?.throwIfAborted()
                 logDebug('ClientConfigSingleton', 'refreshed', JSON.stringify(clientConfig))
 
-                return Promise.all([
-                    // TODO: did query viewerSettings here
-                    graphqlClient.codeSearchEnabled(signal),
-                ]).then(([codeSearchEnabled]) => {
-                    const config: CodyClientConfig = {
-                        ...clientConfig,
-                        notices: [],
-                        omniBoxEnabled,
-                        codeSearchEnabled: isError(codeSearchEnabled) ? true : codeSearchEnabled,
-                    }
+                /* TODO codeSearchEnabled from config fetcher */
+                const codeSearchEnabled = true
+                const config: CodyClientConfig = {
+                    ...clientConfig,
+                    notices: [],
+                    omniBoxEnabled,
+                    codeSearchEnabled: isError(codeSearchEnabled) ? true : codeSearchEnabled,
+                }
 /* TODO viewerSettings
                     // Don't fail the whole chat because of viewer setting (used only to show banners)
                     if (!isError(viewerSettings)) {
@@ -241,16 +239,9 @@ export class ClientConfigSingleton {
                             })
                         )
                     }
-*/
+ */
                     return config
                 })
-            })
-            .catch(e => {
-                if (!isAbortError(e)) {
-                    logError('ClientConfigSingleton', 'failed to refresh client config', e)
-                }
-                throw e
-            })
     }
 
     private async fetchClientConfigLegacy(signal?: AbortSignal): Promise<CodyClientConfig> {
