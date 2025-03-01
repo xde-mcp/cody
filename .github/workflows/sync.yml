@@ -1,0 +1,32 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    - cron: '0 */8 * * *'  # 每8小时运行一次
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          repository: xiewu/cody
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # 获取完整的历史
+
+      - name: Set up Git
+        run: |
+          git config user.name "xiewu"
+          git config user.email "xiewu990909@gmail.com"
+
+      - name: Add upstream repository
+        run: |
+          git remote add upstream https://github.com/sourcegraph/cody.git
+          git fetch upstream
+          git merge upstream/main  # 或者 upstream/master，取决于原始仓库的主分支
+
+      - name: Push changes
+        run: |
+          git push origin HEAD:main  # 或者 HEAD:master
