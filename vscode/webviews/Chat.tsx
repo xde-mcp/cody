@@ -11,6 +11,7 @@ import {
     type PromptString,
 } from '@sourcegraph/cody-shared'
 
+import styles from './Chat.module.css'
 import { Transcript, focusLastHumanMessageEditor } from './chat/Transcript'
 import { WelcomeMessage } from './chat/components/WelcomeMessage'
 import { WelcomeNotice } from './chat/components/WelcomeNotice'
@@ -20,8 +21,6 @@ import type { VSCodeWrapper } from './utils/VSCodeApi'
 import { SpanManager } from './utils/spanManager'
 import { getTraceparentFromSpanContext } from './utils/telemetry'
 import { useUserAccountInfo } from './utils/useConfig'
-
-import styles from './Chat.module.css'
 
 interface ChatboxProps {
     chatEnabled: boolean
@@ -35,7 +34,6 @@ interface ChatboxProps {
     showIDESnippetActions?: boolean
     setView: (view: View) => void
     smartApplyEnabled?: boolean
-    isPromptsV2Enabled?: boolean
     isWorkspacesUpgradeCtaEnabled?: boolean
 }
 
@@ -51,7 +49,6 @@ export const Chat: React.FunctionComponent<React.PropsWithChildren<ChatboxProps>
     showIDESnippetActions = true,
     setView,
     smartApplyEnabled,
-    isPromptsV2Enabled,
     isWorkspacesUpgradeCtaEnabled,
 }) => {
     const transcriptRef = useRef(transcript)
@@ -231,11 +228,7 @@ export const Chat: React.FunctionComponent<React.PropsWithChildren<ChatboxProps>
             />
             {transcript.length === 0 && showWelcomeMessage && (
                 <>
-                    <WelcomeMessage
-                        IDE={userInfo.IDE}
-                        setView={setView}
-                        isPromptsV2Enabled={isPromptsV2Enabled}
-                    />
+                    <WelcomeMessage IDE={userInfo.IDE} setView={setView} />
                     {isWorkspacesUpgradeCtaEnabled && userInfo.IDE !== CodyIDE.Web && (
                         <div className="tw-absolute tw-bottom-0 tw-left-1/2 tw-transform tw--translate-x-1/2 tw-w-[95%] tw-z-1 tw-mb-4 tw-max-h-1/2">
                             <WelcomeNotice />
