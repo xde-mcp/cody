@@ -1,10 +1,8 @@
 import {
     type ChatMessage,
-    ContextItemSource,
     type Guardrails,
     type Model,
     type NLSSearchDynamicFilter,
-    REMOTE_FILE_PROVIDER_URI,
     type SerializedPromptEditorValue,
     deserializeContextItem,
     isAbortErrorOrSocketHangUp,
@@ -24,7 +22,6 @@ import {
     useRef,
     useState,
 } from 'react'
-import { URI } from 'vscode-uri'
 import type { UserAccountInfo } from '../Chat'
 import type { ApiPostMessage } from '../Chat'
 import { getVSCodeAPI } from '../utils/VSCodeApi'
@@ -40,7 +37,9 @@ import { HumanMessageCell } from './cells/messageCell/human/HumanMessageCell'
 
 import { type Context, type Span, context, trace } from '@opentelemetry/api'
 import { DeepCodyAgentID, ToolCodyModelName } from '@sourcegraph/cody-shared/src/models/client'
+import * as uuid from 'uuid'
 import { isCodeSearchContextItem } from '../../src/context/openctx/codeSearch'
+import { useClientActionListener } from '../client/clientState'
 import { useLocalStorage } from '../components/hooks'
 import { AgenticContextCell } from './cells/agenticCell/AgenticContextCell'
 import ApprovalCell from './cells/agenticCell/ApprovalCell'
@@ -64,9 +63,6 @@ interface TranscriptProps {
     copyButtonOnSubmit: CodeBlockActionsProps['copyButtonOnSubmit']
     insertButtonOnSubmit?: CodeBlockActionsProps['insertButtonOnSubmit']
     smartApply?: CodeBlockActionsProps['smartApply']
-
-    manuallySelectedIntent: ChatMessage['intent']
-    setManuallySelectedIntent: (intent: ChatMessage['intent']) => void
 }
 
 export const Transcript: FC<TranscriptProps> = props => {
@@ -83,49 +79,14 @@ export const Transcript: FC<TranscriptProps> = props => {
         copyButtonOnSubmit,
         insertButtonOnSubmit,
         smartApply,
-        manuallySelectedIntent,
-        setManuallySelectedIntent,
     } = props
 
     const interactions = useMemo(
-        () => transcriptToInteractionPairs(transcript, messageInProgress, manuallySelectedIntent),
-        [transcript, messageInProgress, manuallySelectedIntent]
+        () => transcriptToInteractionPairs(transcript, messageInProgress),
+        [transcript, messageInProgress]
     )
 
     const lastHumanEditorRef = useRef<PromptEditorRefAPI | null>(null)
-
-    const onAddToFollowupChat = useCallback(
-        ({
-            repoName,
-            filePath,
-            fileURL,
-        }: {
-            repoName: string
-            filePath: string
-            fileURL: string
-        }) => {
-            lastHumanEditorRef.current?.addMentions([
-                {
-                    providerUri: REMOTE_FILE_PROVIDER_URI,
-                    provider: 'openctx',
-                    type: 'openctx',
-                    uri: URI.parse(fileURL),
-                    title: filePath.split('/').at(-1) ?? filePath,
-                    description: filePath,
-                    source: ContextItemSource.User,
-                    mention: {
-                        uri: fileURL,
-                        description: filePath,
-                        data: {
-                            repoName,
-                            filePath: filePath,
-                        },
-                    },
-                },
-            ])
-        },
-        []
-    )
 
     return (
         <div
@@ -157,13 +118,17 @@ export const Transcript: FC<TranscriptProps> = props => {
                         )}
                         smartApply={smartApply}
                         editorRef={
-                            interaction.humanMessage.index === -1 && !messageInProgress
+                            // Only set the editor ref for:
+                            // 1. The first unsent agentic message (index -1), or
+                            // 2. The last interaction in the transcript
+                            // And only when there's no message currently in progress
+                            ((interaction.humanMessage.intent === 'agentic' &&
+                                interaction.humanMessage.index === -1) ||
+                                i === interactions.length - 1) &&
+                            !messageInProgress
                                 ? lastHumanEditorRef
                                 : undefined
                         }
-                        onAddToFollowupChat={onAddToFollowupChat}
-                        manuallySelectedIntent={manuallySelectedIntent}
-                        setManuallySelectedIntent={setManuallySelectedIntent}
                     />
                 ))}
             </LastEditorContext.Provider>
@@ -182,8 +147,7 @@ export interface Interaction {
 
 export function transcriptToInteractionPairs(
     transcript: ChatMessage[],
-    assistantMessageInProgress: ChatMessage | null,
-    manuallySelectedIntent: ChatMessage['intent']
+    assistantMessageInProgress: ChatMessage | null
 ): Interaction[] {
     const pairs: Interaction[] = []
     const transcriptLength = transcript.length
@@ -233,9 +197,7 @@ export function transcriptToInteractionPairs(
                 index: lastHumanMessage?.intent === 'agentic' ? -1 : pairs.length * 2,
                 speaker: 'human',
                 isUnsentFollowup: true,
-                // If the last submitted message was a search, default to chat for the followup. Else,
-                // keep the manually selected intent, if any, or the last human message's intent.
-                intent: lastHumanMessage?.intent === 'search' ? 'chat' : lastHumanMessage?.intent,
+                intent: lastHumanMessage?.intent === 'agentic' ? 'agentic' : 'chat',
             },
             assistantMessage: null,
         })
@@ -254,13 +216,12 @@ interface TranscriptInteractionProps
     isLastSentInteraction: boolean
     priorAssistantMessageIsLoading: boolean
     editorRef?: React.RefObject<PromptEditorRefAPI | null>
-    onAddToFollowupChat?: (props: {
-        repoName: string
-        filePath: string
-        fileURL: string
-    }) => void
-    manuallySelectedIntent: ChatMessage['intent']
-    setManuallySelectedIntent: (intent: ChatMessage['intent']) => void
+}
+
+export type RegeneratingCodeBlockState = {
+    id: string
+    code: string
+    error: string | undefined
 }
 
 const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
@@ -279,8 +240,6 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
         copyButtonOnSubmit,
         smartApply,
         editorRef: parentEditorRef,
-        manuallySelectedIntent,
-        setManuallySelectedIntent,
     } = props
 
     const { activeChatContext, setActiveChatContext } = props
@@ -288,10 +247,20 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
     const lastEditorRef = useContext(LastEditorContext)
     useImperativeHandle(parentEditorRef, () => humanEditorRef.current)
 
+    const [selectedIntent, setSelectedIntent] = useState<ChatMessage['intent']>(humanMessage?.intent)
+
+    // Reset intent to 'chat' when there are no interactions (new chat)
+    useEffect(() => {
+        if (isFirstInteraction && isLastInteraction && humanMessage.isUnsentFollowup) {
+            humanMessage.intent = 'chat'
+            setSelectedIntent('chat')
+        }
+    }, [humanMessage, isFirstInteraction, isLastInteraction])
+
     const usingToolCody = assistantMessage?.model?.includes(ToolCodyModelName)
 
     const onUserAction = useCallback(
-        (action: 'edit' | 'submit', intentFromSubmit?: ChatMessage['intent']) => {
+        (action: 'edit' | 'submit', manuallySelectedIntent: ChatMessage['intent']) => {
             // Start the span as soon as the user initiates the action
             const startMark = performance.mark('startSubmit')
             const spanManager = new SpanManager('cody-webview')
@@ -322,8 +291,8 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
 
             const commonProps = {
                 editorValue,
-                manuallySelectedIntent: intentFromSubmit || manuallySelectedIntent,
                 traceparent,
+                manuallySelectedIntent,
             }
 
             if (action === 'edit') {
@@ -336,7 +305,6 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                 if (isLastSentInteraction) {
                     lastEditorRef.current?.filterMentions(item => !isCodeSearchContextItem(item))
                 }
-
                 editHumanMessage({
                     messageIndexInTranscript: humanMessage.index,
                     ...commonProps,
@@ -347,30 +315,11 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                 })
             }
         },
-        [
-            humanMessage,
-            setActiveChatContext,
-            isLastSentInteraction,
-            lastEditorRef,
-            manuallySelectedIntent,
-        ]
+        [humanMessage, setActiveChatContext, isLastSentInteraction, lastEditorRef]
     )
 
-    const onEditSubmit = useCallback(
-        (intentFromSubmit?: ChatMessage['intent']): void => {
-            onUserAction('edit', intentFromSubmit)
-        },
-        [onUserAction]
-    )
-
-    const onFollowupSubmit = useCallback(
-        (intentFromSubmit?: ChatMessage['intent']): void => {
-            onUserAction('submit', intentFromSubmit)
-        },
-        [onUserAction]
-    )
-
-    const omniboxEnabled = useOmniBox() && !usingToolCody
+    // Omnibox is enabled if the user is not a dotcom user and the omnibox is enabled
+    const omniboxEnabled = useOmniBox() && !userInfo?.isDotComUser
 
     const vscodeAPI = getVSCodeAPI()
     const onStop = useCallback(() => {
@@ -525,17 +474,23 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
     }, [humanMessage, assistantMessage, isContextLoading])
 
     const onHumanMessageSubmit = useCallback(
-        (intent?: ChatMessage['intent']) => {
+        (intentOnSubmit: ChatMessage['intent']) => {
+            // Current intent is the last selected intent if any or the current intent of the human message
+            const currentIntent = selectedIntent || humanMessage?.intent
+            // If no intent on submit provided, use the current intent instead
+            const newIntent = intentOnSubmit === undefined ? currentIntent : intentOnSubmit
+            setSelectedIntent(newIntent)
             if (humanMessage.isUnsentFollowup) {
-                onFollowupSubmit(intent)
+                onUserAction('submit', newIntent)
             } else {
-                onEditSubmit(intent)
+                // Use onUserAction directly with the new intent
+                onUserAction('edit', newIntent)
             }
             // Set the unsent followup flag to false after submitting
             // to makes sure the last editor for Agent mode gets reset.
             humanMessage.isUnsentFollowup = false
         },
-        [humanMessage, onFollowupSubmit, onEditSubmit]
+        [humanMessage, onUserAction, selectedIntent]
     )
 
     const onSelectedFiltersUpdate = useCallback(
@@ -549,7 +504,8 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
     )
 
     const editAndSubmitSearch = useCallback(
-        (text: string) =>
+        (text: string) => {
+            setSelectedIntent('search')
             editHumanMessage({
                 messageIndexInTranscript: humanMessage.index,
                 editorValue: {
@@ -558,12 +514,63 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                     editorState: serializedPromptEditorStateFromText(text),
                 },
                 manuallySelectedIntent: 'search',
-            }),
+            })
+        },
         [humanMessage]
     )
 
+    // We track, ephemerally, the code blocks that are being regenerated so
+    // we can show an accurate loading indicator or error message on those
+    // blocks.
+    const [regeneratingCodeBlocks, setRegeneratingCodeBlocks] = useState<RegeneratingCodeBlockState[]>(
+        []
+    )
+    useClientActionListener(
+        { isActive: true, selector: event => Boolean(event.regenerateStatus) },
+        useCallback(event => {
+            setRegeneratingCodeBlocks(blocks => {
+                switch (event.regenerateStatus?.status) {
+                    case 'done': {
+                        // A block is done, so remove it from the list of generating blocks.
+                        const regenerateStatus = event.regenerateStatus
+                        return blocks.filter(block => block.id !== regenerateStatus.id).slice()
+                    }
+                    case 'error': {
+                        // A block errored, so remove it from the list of generating blocks.
+                        const regenerateStatus = event.regenerateStatus
+                        return blocks
+                            .map(block =>
+                                block.id === regenerateStatus.id
+                                    ? { ...block, error: regenerateStatus.error }
+                                    : block
+                            )
+                            .slice()
+                    }
+                    default:
+                        return blocks
+                }
+            })
+        }, [])
+    )
+
+    const onRegenerate = useCallback(
+        (code: string, language?: string) => {
+            if (assistantMessage) {
+                const id = uuid.v4()
+                regenerateCodeBlock({ id, code, language, index: assistantMessage.index })
+                setRegeneratingCodeBlocks(blocks => [
+                    { id, index: assistantMessage.index, code, error: undefined },
+                    ...blocks,
+                ])
+            } else {
+                console.warn('tried to regenerate a code block, but there is no assistant message')
+            }
+        },
+        [assistantMessage]
+    )
+
     const isAgenticMode = useMemo(
-        () => humanMessage?.intent === 'agentic' || humanMessage?.manuallySelectedIntent === 'agentic',
+        () => humanMessage?.manuallySelectedIntent === 'agentic' || humanMessage?.intent === 'agentic',
         [humanMessage?.intent, humanMessage?.manuallySelectedIntent]
     )
 
@@ -591,18 +598,18 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                 isEditorInitiallyFocused={isLastInteraction}
                 editorRef={humanEditorRef}
                 className={!isFirstInteraction && isLastInteraction ? 'tw-mt-auto' : ''}
-                intent={manuallySelectedIntent}
-                manuallySelectIntent={setManuallySelectedIntent}
+                intent={selectedIntent}
+                manuallySelectIntent={setSelectedIntent}
             />
             {!isAgenticMode && (
                 <>
-                    {omniboxEnabled && assistantMessage?.didYouMeanQuery && (
+                    {!usingToolCody && omniboxEnabled && assistantMessage?.didYouMeanQuery && (
                         <DidYouMeanNotice
                             query={assistantMessage?.didYouMeanQuery}
                             disabled={!!assistantMessage?.isLoading}
-                            switchToSearch={() =>
+                            switchToSearch={() => {
                                 editAndSubmitSearch(assistantMessage?.didYouMeanQuery ?? '')
-                            }
+                            }}
                         />
                     )}
                     {!usingToolCody && !isSearchIntent && humanMessage.agent && (
@@ -643,6 +650,8 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                         message={assistantMessage}
                         copyButtonOnSubmit={copyButtonOnSubmit}
                         insertButtonOnSubmit={insertButtonOnSubmit}
+                        onRegenerate={onRegenerate}
+                        regeneratingCodeBlocks={regeneratingCodeBlocks}
                         postMessage={postMessage}
                         guardrails={guardrails}
                         humanMessage={humanMessageInfo}
@@ -684,6 +693,26 @@ export function focusLastHumanMessageEditor(): void {
     if (container && container instanceof HTMLElement && editorScrollItemInContainer) {
         container.scrollTop = editorScrollItemInContainer.offsetTop - container.offsetTop
     }
+}
+
+export function regenerateCodeBlock({
+    id,
+    code,
+    language,
+    index,
+}: {
+    id: string
+    code: string
+    language?: string
+    index: number
+}) {
+    getVSCodeAPI().postMessage({
+        command: 'regenerateCodeBlock',
+        id,
+        code,
+        language,
+        index,
+    })
 }
 
 export function editHumanMessage({

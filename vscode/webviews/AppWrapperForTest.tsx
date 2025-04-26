@@ -80,7 +80,7 @@ export const AppWrapperForTest: FunctionComponent<{ children: ReactNode }> = ({ 
                                             ].filter(f => f.uri.path.includes(queryTextLower)),
                             }
                         }),
-                    evaluateFeatureFlag: flag => {
+                    evaluatedFeatureFlag: flag => {
                         switch (flag) {
                             case FeatureFlag.CodyExperimentalPromptEditor:
                                 // Do not enable the experimental prompt editor in tests (yet).
@@ -126,6 +126,7 @@ export const AppWrapperForTest: FunctionComponent<{ children: ReactNode }> = ({ 
                     transcript: () => Observable.of(FIXTURE_TRANSCRIPT.explainCode),
                     userHistory: () => Observable.of(null),
                     userProductSubscription: () => Observable.of(null),
+                    mcpSettings: () => Observable.of(null),
                 },
             } satisfies Wrapper<ComponentProps<typeof ExtensionAPIProviderForTestsOnly>['value']>,
             {

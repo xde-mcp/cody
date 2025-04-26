@@ -5,6 +5,7 @@ import { type ClientConfiguration, CodyIDE } from '@sourcegraph/cody-shared'
 
 import { defaultConfigurationValue } from '../../vscode/src/configuration-keys'
 
+import type { AgentEventEmitter } from '../../vscode/src/testutils/AgentEventEmitter'
 import type { ClientInfo, ExtensionConfiguration } from './protocol-alias'
 
 export class AgentWorkspaceConfiguration implements vscode.WorkspaceConfiguration {
@@ -12,6 +13,7 @@ export class AgentWorkspaceConfiguration implements vscode.WorkspaceConfiguratio
         private prefix: string[],
         private clientInfo: () => ClientInfo | undefined,
         private extensionConfig: () => ExtensionConfiguration | undefined,
+        private onDidChange: AgentEventEmitter<vscode.ConfigurationChangeEvent> | undefined = undefined,
         private dictionary: any = {}
     ) {}
 
@@ -20,6 +22,7 @@ export class AgentWorkspaceConfiguration implements vscode.WorkspaceConfiguratio
             this.prefix.concat(prefix),
             this.clientInfo,
             this.extensionConfig,
+            this.onDidChange,
             this.dictionary
         )
     }
@@ -96,7 +99,8 @@ export class AgentWorkspaceConfiguration implements vscode.WorkspaceConfiguratio
                         model: config?.autocompleteAdvancedModel ?? null,
                         provider: config?.autocompleteAdvancedProvider ?? null,
                     },
-                    enabled: true,
+                    // If suggestionsMode is set, honor that, otherwise default to true
+                    enabled: config?.suggestionsMode ? config.suggestionsMode === 'autocomplete' : true,
                 },
                 suggestions: {
                     mode: config?.suggestionsMode || 'autocomplete',
@@ -196,7 +200,13 @@ export class AgentWorkspaceConfiguration implements vscode.WorkspaceConfiguratio
         _configurationTarget?: boolean | vscode.ConfigurationTarget | null | undefined,
         _overrideInLanguage?: boolean | undefined
     ): Promise<void> {
+        if (this.get(section) === value) {
+            return Promise.resolve()
+        }
+
         this.put(section, value)
-        return Promise.resolve()
+        if (this.onDidChange) {
+            await this.onDidChange.cody_fireAsync({ affectsConfiguration: () => true })
+        }
     }
 }

@@ -55,7 +55,7 @@ export class PromptBuilder {
     private constructor(private readonly tokenCounter: TokenCounter) {}
 
     private readonly hasCacheFeatureFlag = storeLastValue(
-        featureFlagProvider.evaluateFeatureFlag(FeatureFlag.CodyPromptCachingOnMessages)
+        featureFlagProvider.evaluatedFeatureFlag(FeatureFlag.CodyPromptCachingOnMessages)
     )
     private readonly _isCacheEnabled: PromptCachingSetting = {
         featureFlag: false,
@@ -206,7 +206,7 @@ export class PromptBuilder {
             // ignored on a client to always be treated as ignored.
             if (
                 item.type === 'file' &&
-                (item.uri.scheme === 'https' || item.uri.scheme === 'http') &&
+                (item?.uri?.scheme === 'https' || item?.uri?.scheme === 'http') &&
                 item.repoName &&
                 (await contextFiltersProvider.isRepoNameIgnored(item.repoName))
             ) {

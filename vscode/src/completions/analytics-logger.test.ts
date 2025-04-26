@@ -1,7 +1,7 @@
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { telemetryRecorder } from '@sourcegraph/cody-shared'
-import { range } from '../testutils/textDocument'
+import { range } from '../editor/utils/virtual-text-document'
 
 import * as CompletionAnalyticsLogger from './analytics-logger'
 import { type InlineCompletionItemContext, getInlineContextItemToLog } from './analytics-logger'
@@ -28,7 +28,7 @@ const defaultContextSummary = {
     totalChars: 3,
     prefixChars: 0,
     suffixChars: 3,
-    retrieverStats: {},
+    retrieverStats: [],
 } satisfies ContextSummary
 
 const { document, position } = documentAndPosition('const foo = █')

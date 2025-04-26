@@ -379,6 +379,17 @@ export class Agent extends MessageHandler implements ExtensionClient {
     ) {
         super(params.conn)
         vscode_shim.setAgent(this)
+
+        vscode_shim.onDidChangeConfiguration.event(() => {
+            const config = vscode_shim.workspace.getConfiguration().get('cody')
+            if (config) {
+                const codyConfig = {
+                    cody: config,
+                }
+                this.notify('extensionConfiguration/didUpdate', JSON.stringify(codyConfig))
+            }
+        })
+
         this.registerRequest('initialize', async clientInfo => {
             vscode.languages.registerFoldingRangeProvider(
                 '*',
@@ -743,6 +754,10 @@ export class Agent extends MessageHandler implements ExtensionClient {
             }
             global.gc()
             return { usage: process.memoryUsage() }
+        })
+
+        this.registerAuthenticatedRequest('testing/heapdump', async () => {
+            return await vscode.commands.executeCommand('cody.debug.heapDump')
         })
 
         this.registerAuthenticatedRequest('testing/networkRequests', async () => {

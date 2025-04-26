@@ -10,15 +10,17 @@ import {
     type LucideProps,
     MessageSquarePlusIcon,
     MessagesSquareIcon,
+    Settings2Icon,
     Trash2Icon,
 } from 'lucide-react'
 import { getVSCodeAPI } from '../utils/VSCodeApi'
 import { View } from './types'
 
-import { type AuthenticatedAuthStatus, CodyIDE, isDefined } from '@sourcegraph/cody-shared'
+import { type AuthenticatedAuthStatus, CodyIDE, FeatureFlag, isDefined } from '@sourcegraph/cody-shared'
 import { type FC, Fragment, forwardRef, memo, useCallback, useMemo, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/shadcn/ui/tooltip'
 import { useConfig } from '../utils/useConfig'
+import { useFeatureFlag } from '../utils/useFeatureFlags'
 
 import { useExtensionAPI } from '@sourcegraph/prompt-editor'
 import { isEqual } from 'lodash'
@@ -129,8 +131,8 @@ export const TabsBar = memo<TabsBarProps>(props => {
                     <div className="tw-flex tw-ml-auto">
                         <TabButton
                             prominent
-                            Icon={showOpenInEditor ? ColumnsIcon : MessageSquarePlusIcon}
-                            title={showOpenInEditor ? 'Open in Editor' : 'New Chat'}
+                            Icon={MessageSquarePlusIcon}
+                            title={'New Chat'}
                             IDE={IDE}
                             tooltipExtra={IDE === CodyIDE.VSCode && '(⇧⌥/)'}
                             view={View.Chat}
@@ -138,18 +140,30 @@ export const TabsBar = memo<TabsBarProps>(props => {
                             onClick={() =>
                                 handleSubActionClick({
                                     changesView: View.Chat,
-                                    command: `${
-                                        showOpenInEditor
-                                            ? 'cody.chat.moveToEditor'
-                                            : getCreateNewChatCommand({
-                                                  IDE,
-                                                  webviewType,
-                                                  multipleWebviewsEnabled,
-                                              })
-                                    }`,
+                                    command: getCreateNewChatCommand({
+                                        IDE,
+                                        webviewType,
+                                        multipleWebviewsEnabled,
+                                    }),
                                 })
                             }
                         />
+                        {showOpenInEditor && (
+                            <TabButton
+                                prominent
+                                Icon={ColumnsIcon}
+                                title={'Open in Editor'}
+                                IDE={IDE}
+                                view={View.Chat}
+                                data-testid="open-in-editor-button"
+                                onClick={() =>
+                                    handleSubActionClick({
+                                        changesView: View.Chat,
+                                        command: 'cody.chat.moveToEditor',
+                                    })
+                                }
+                            />
+                        )}
                         {IDE !== CodyIDE.Web && (
                             <UserMenu
                                 authStatus={user.user as AuthenticatedAuthStatus}
@@ -347,7 +361,7 @@ TabButton.displayName = 'TabButton'
  */
 function useTabs(input: Pick<TabsBarProps, 'user'>): TabConfig[] {
     const IDE = input.user.IDE
-
+    const isMcpEnabled = useFeatureFlag(FeatureFlag.NextAgenticChatInternal)
     const extensionAPI = useExtensionAPI<'userHistory'>()
 
     return useMemo<TabConfig[]>(
@@ -364,37 +378,36 @@ function useTabs(input: Pick<TabsBarProps, 'user'>): TabConfig[] {
                         view: View.History,
                         title: 'History',
                         Icon: HistoryIcon,
-                        subActions: [
-                            {
-                                title: 'Export',
-                                Icon: DownloadIcon,
-                                command: 'cody.chat.history.export',
-                                callback: () => downloadChatHistory(extensionAPI),
-                            },
-                            {
-                                title: 'Delete all',
-                                Icon: Trash2Icon,
-                                command: 'cody.chat.history.clear',
+                        subActions:
+                            IDE === CodyIDE.Web
+                                ? [
+                                      {
+                                          title: 'Export',
+                                          Icon: DownloadIcon,
+                                          command: 'cody.chat.history.export',
+                                          callback: () => downloadChatHistory(extensionAPI),
+                                      },
+                                      {
+                                          title: 'Delete all',
+                                          Icon: Trash2Icon,
+                                          command: 'cody.chat.history.clear',
 
-                                // Show Cody Chat UI confirmation modal with this message only for
-                                // Cody Web. All other IDE either implements their own native confirmation UI
-                                // or don't have confirmation UI at all.
-                                confirmation:
-                                    IDE === CodyIDE.Web
-                                        ? {
+                                          // Show Cody Chat UI confirmation modal with this message only for
+                                          // Cody Web. All other IDE either implements their own native confirmation UI
+                                          // or don't have confirmation UI at all.
+                                          confirmation: {
                                               title: 'Are you sure you want to delete all of your chats?',
                                               description:
                                                   'You will not be able to recover them once deleted.',
                                               confirmationAction: 'Delete all chats',
-                                          }
-                                        : undefined,
-
-                                // We don't have a way to request user confirmation in Cody Agent
-                                // (vscode.window.showWarningMessage is overridable there), so bypass
-                                // confirmation in cody agent and use confirmation UI above.
-                                arg: IDE === CodyIDE.VSCode ? undefined : 'clear-all-no-confirm',
-                            },
-                        ].filter(isDefined),
+                                          },
+                                          // We don't have a way to request user confirmation in Cody Agent
+                                          // (vscode.window.showWarningMessage is overridable there), so bypass
+                                          // confirmation in cody agent and use confirmation UI above.
+                                          arg: 'clear-all-no-confirm',
+                                      },
+                                  ].filter(isDefined)
+                                : undefined,
                         changesView: true,
                     },
                     {
@@ -403,8 +416,16 @@ function useTabs(input: Pick<TabsBarProps, 'user'>): TabConfig[] {
                         Icon: BookTextIcon,
                         changesView: true,
                     },
+                    isMcpEnabled
+                        ? {
+                              view: View.Settings,
+                              title: 'Settings',
+                              Icon: Settings2Icon,
+                              changesView: true,
+                          }
+                        : null,
                 ] as (TabConfig | null)[]
             ).filter(isDefined),
-        [IDE, extensionAPI]
+        [IDE, extensionAPI, isMcpEnabled]
     )
 }

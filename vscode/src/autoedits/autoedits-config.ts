@@ -3,19 +3,24 @@ import * as vscode from 'vscode'
 import {
     type AutoEditsModelConfig,
     type AutoEditsTokenLimit,
+    FeatureFlag,
     authStatus,
+    featureFlagProvider,
     isDotComAuthed,
 } from '@sourcegraph/cody-shared'
 
 import { RetrieverIdentifier } from '../completions/context/utils'
 import { getConfiguration } from '../configuration'
+import { isHotStreakEnabledInSettings } from './hot-streak/utils'
 
 interface BaseAutoeditsProviderConfig {
     provider: AutoEditsModelConfig['provider']
+    promptProvider?: AutoEditsModelConfig['promptProvider']
     model: string
     url: string
     tokenLimit: AutoEditsTokenLimit
     isChatModel: boolean
+    timeoutMs: number
 }
 
 export interface AutoeditsProviderConfig extends BaseAutoeditsProviderConfig {
@@ -39,26 +44,51 @@ const defaultTokenLimit = {
     },
 } as const satisfies AutoEditsTokenLimit
 
+let hotStreakEnabled = false
+featureFlagProvider.evaluatedFeatureFlag(FeatureFlag.CodyAutoEditHotStreak).subscribe(value => {
+    hotStreakEnabled = value
+    autoeditsProviderConfig = getAutoeditsProviderConfig()
+})
+
 /**
  * Retrieves the base configuration for the AutoEdits provider based on authentication status.
  */
 function getBaseProviderConfig(): BaseAutoeditsProviderConfig {
+    const shouldHotStreak = hotStreakEnabled || isHotStreakEnabledInSettings()
+    const tokenLimit = shouldHotStreak
+        ? // Hot-streak can handle much longer suffixes
+          { ...defaultTokenLimit, codeToRewriteSuffixLines: 30 }
+        : defaultTokenLimit
+    const promptProvider: AutoEditsModelConfig['promptProvider'] = shouldHotStreak
+        ? 'long-suggestion-prompt-provider'
+        : undefined
+
+    // Common configuration for both authentication states
+    const baseConfig = {
+        promptProvider,
+        tokenLimit,
+        isChatModel: false,
+        timeoutMs: 10_000,
+    } as const
+
     if (isDotComAuthed()) {
         return {
+            ...baseConfig,
             provider: 'cody-gateway',
-            model: 'autoedits-deepseek-lite-default',
+            model: shouldHotStreak
+                ? 'autoedits-long-suggestion-default'
+                : 'autoedits-deepseek-lite-default',
             url: 'https://cody-gateway.sourcegraph.com/v1/completions/fireworks',
-            tokenLimit: defaultTokenLimit,
-            isChatModel: false,
         }
     }
 
     return {
+        ...baseConfig,
         provider: 'sourcegraph',
-        model: 'fireworks::v1::autoedits-deepseek-lite-default',
-        tokenLimit: defaultTokenLimit,
+        model: shouldHotStreak
+            ? 'fireworks::v1::autoedits-long-suggestion-default'
+            : 'fireworks::v1::autoedits-deepseek-lite-default',
         url: '',
-        isChatModel: false,
     }
 }
 
@@ -77,10 +107,12 @@ function getAutoeditsProviderConfig(): AutoeditsProviderConfig {
         experimentalAutoeditsConfigOverride: userConfig,
         isMockResponseFromCurrentDocumentTemplateEnabled,
         provider: baseConfig.provider,
+        promptProvider: baseConfig.promptProvider,
         model: baseConfig.model,
         url: baseConfig.url ?? '',
         tokenLimit: baseConfig.tokenLimit,
         isChatModel: baseConfig.isChatModel,
+        timeoutMs: baseConfig.timeoutMs,
     }
 }
 

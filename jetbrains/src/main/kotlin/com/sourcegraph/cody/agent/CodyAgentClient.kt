@@ -2,24 +2,30 @@ package com.sourcegraph.cody.agent
 
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
-import com.intellij.notification.Notifications
+import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.jetbrains.rd.util.firstOrNull
+import com.sourcegraph.Icons
 import com.sourcegraph.cody.agent.protocol.WebviewCreateWebviewPanelParams
 import com.sourcegraph.cody.agent.protocol_extensions.ProtocolTextDocumentExt
 import com.sourcegraph.cody.agent.protocol_generated.*
 import com.sourcegraph.cody.auth.CodyAuthService
 import com.sourcegraph.cody.auth.CodySecureStore
 import com.sourcegraph.cody.auth.SourcegraphServerPath
+import com.sourcegraph.cody.autocomplete.CodyAutocompleteManager
+import com.sourcegraph.cody.autoedit.AutoeditManager
+import com.sourcegraph.cody.config.actions.OpenCodySettingsEditorAction
 import com.sourcegraph.cody.edit.EditService
 import com.sourcegraph.cody.edit.lenses.LensesService
 import com.sourcegraph.cody.error.CodyConsole
@@ -27,9 +33,11 @@ import com.sourcegraph.cody.error.SentryService
 import com.sourcegraph.cody.ignore.IgnoreOracle
 import com.sourcegraph.cody.statusbar.CodyStatusService
 import com.sourcegraph.cody.ui.web.NativeWebviewProvider
+import com.sourcegraph.cody.vscode.InlineCompletionTriggerKind
 import com.sourcegraph.common.BrowserOpener
 import com.sourcegraph.common.NotificationGroups
 import com.sourcegraph.common.ui.SimpleDumbAwareEDTAction
+import com.sourcegraph.config.ConfigUtil
 import com.sourcegraph.utils.CodyEditorUtil
 import java.nio.file.Paths
 import java.util.concurrent.CompletableFuture
@@ -189,11 +197,11 @@ class CodyAgentClient(private val project: Project, private val webview: NativeW
       val authService = CodyAuthService.getInstance(project)
       if (params is ProtocolAuthenticatedAuthStatus) {
         SentryService.getInstance().setUser(params.primaryEmail, params.username)
-        authService.setActivated(true)
+        authService.setActivated(true, params.pendingValidation)
         authService.setEndpoint(SourcegraphServerPath(params.endpoint))
       } else if (params is ProtocolUnauthenticatedAuthStatus) {
         SentryService.getInstance().setUser(null, null)
-        authService.setActivated(false)
+        authService.setActivated(false, params.pendingValidation)
         authService.setEndpoint(SourcegraphServerPath(params.endpoint))
       }
       CodyStatusService.resetApplication(project)
@@ -221,7 +229,15 @@ class CodyAgentClient(private val project: Project, private val webview: NativeW
 
     val selectedItem: CompletableFuture<String?> = CompletableFuture()
     params.items?.map { item ->
-      notification.addAction(SimpleDumbAwareEDTAction(item) { selectedItem.complete(item) })
+      notification.addAction(
+          SimpleDumbAwareEDTAction(item) {
+            selectedItem.complete(item)
+            // The API does not allow us to handle multiple triggers of actions for the same
+            // notifications
+            // (either the same action, nor two different actions for a single notification).
+            // Hence, we need to expire the notification on any action.
+            notification.expire()
+          })
     }
     notification.addAction(
         SimpleDumbAwareEDTAction("Dismiss") {
@@ -229,7 +245,7 @@ class CodyAgentClient(private val project: Project, private val webview: NativeW
           selectedItem.complete(null)
         })
 
-    Notifications.Bus.notify(notification)
+    notification.setIcon(Icons.SourcegraphLogo)
     notification.notify(project)
 
     return selectedItem
@@ -238,6 +254,22 @@ class CodyAgentClient(private val project: Project, private val webview: NativeW
   // =============
   // Notifications
   // =============
+
+  @JsonNotification("autocomplete/didHide")
+  fun autocomplete_didHide(params: Null?) {
+    AutoeditManager.getInstance(project).hide()
+  }
+
+  @JsonNotification("autocomplete/didTrigger")
+  fun autocomplete_didTrigger(params: Null?) {
+    FileEditorManager.getInstance(project).selectedTextEditor?.let { editor ->
+      ReadAction.run<Throwable> {
+        CodyAutocompleteManager.getInstance(project)
+            .triggerAutocomplete(
+                editor, editor.caretModel.offset, InlineCompletionTriggerKind.AUTOMATIC)
+      }
+    }
+  }
 
   @JsonNotification("codeLenses/display")
   fun codeLenses_display(params: DisplayCodeLensParams) {
@@ -253,6 +285,28 @@ class CodyAgentClient(private val project: Project, private val webview: NativeW
   fun debug_message(params: DebugMessage) {
     if (!project.isDisposed) {
       CodyConsole.getInstance(project).addMessage(params)
+    }
+  }
+
+  @JsonNotification("extensionConfiguration/didUpdate")
+  fun extensionConfiguration_didUpdate(params: String) {
+    if (!project.isDisposed) {
+      ConfigUtil.setCustomConfiguration(project, params)
+    }
+  }
+
+  @JsonNotification("extensionConfiguration/openSettings")
+  fun extensionConfiguration_openSettings(params: Null?) {
+    if (!project.isDisposed) {
+      val actionEvent =
+          AnActionEvent(
+              null,
+              SimpleDataContext.getProjectContext(project),
+              ActionPlaces.UNKNOWN,
+              Presentation(),
+              ActionManager.getInstance(),
+              0)
+      OpenCodySettingsEditorAction().actionPerformed(actionEvent)
     }
   }
 

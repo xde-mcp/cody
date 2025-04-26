@@ -1,5 +1,4 @@
-import _ from 'lodash'
-import { isEqual } from 'lodash'
+import _, { isEqual } from 'lodash'
 import { filter, map } from 'observable-fns'
 import * as vscode from 'vscode'
 
@@ -61,6 +60,7 @@ import { CodyToolProvider } from './chat/agentic/CodyToolProvider'
 import { ChatsController, CodyChatEditorViewType } from './chat/chat-view/ChatsController'
 import { ContextRetriever } from './chat/chat-view/ContextRetriever'
 import { SourcegraphRemoteFileProvider } from './chat/chat-view/sourcegraphRemoteFile'
+import { MCPManager } from './chat/chat-view/tools/MCPManager'
 import {
     ACCOUNT_LIMITS_INFO_URL,
     ACCOUNT_UPGRADE_URL,
@@ -117,6 +117,7 @@ import {
     exportOutputLog,
     openCodyOutputChannel,
 } from './services/utils/export-logs'
+import { dumpCodyHeapSnapshot } from './services/utils/heap-dump'
 import { openCodyIssueReporter } from './services/utils/issue-reporter'
 import { SupercompletionProvider } from './supercompletions/supercompletion-provider'
 import { parseAllVisibleDocuments, updateParseTreeOnEdit } from './tree-sitter/parse-tree-cache'
@@ -318,6 +319,34 @@ const register = async (
     // extension timeout during activation.
     resolvedConfig.pipe(take(1)).subscribe(({ auth }) => showSetupNotification(auth))
 
+    // Initialize MCP Manager based on the feature flag
+    let mcpManager: MCPManager | undefined
+    disposables.push(
+        subscriptionDisposable(
+            featureFlagProvider
+                .evaluatedFeatureFlag(FeatureFlag.NextAgenticChatInternal)
+                .pipe(distinctUntilChanged())
+                .subscribe(async isEnabled => {
+                    if (isEnabled) {
+                        // Initialize MCP Manager if feature flag is enabled
+                        if (!mcpManager) {
+                            mcpManager = await MCPManager.init()
+                            if (mcpManager) {
+                                logDebug('main', 'MCPManager initialized')
+                            }
+                        }
+                    } else {
+                        // Dispose MCP Manager if feature flag is disabled
+                        if (mcpManager) {
+                            await mcpManager.dispose()
+                            mcpManager = undefined
+                            logDebug('main', 'MCPManager disposed')
+                        }
+                    }
+                })
+        )
+    )
+
     // Save config for `deactivate` handler.
     disposables.push(
         subscriptionDisposable(
@@ -485,7 +514,7 @@ async function registerCodyCommands({
     disposables.push(
         subscriptionDisposable(
             featureFlagProvider
-                .evaluateFeatureFlag(FeatureFlag.CodyUnifiedPrompts)
+                .evaluatedFeatureFlag(FeatureFlag.CodyUnifiedPrompts)
                 .pipe(
                     createDisposables(codyUnifiedPromptsFlag => {
                         // Commands that are available only if unified prompts feature is enabled.
@@ -707,7 +736,8 @@ async function registerDebugCommands(
         vscode.commands.registerCommand('cody.debug.export.logs', () => exportOutputLog(context.logUri)),
         vscode.commands.registerCommand('cody.debug.outputChannel', () => openCodyOutputChannel()),
         vscode.commands.registerCommand('cody.debug.enable.all', () => enableVerboseDebugMode()),
-        vscode.commands.registerCommand('cody.debug.reportIssue', () => openCodyIssueReporter())
+        vscode.commands.registerCommand('cody.debug.reportIssue', () => openCodyIssueReporter()),
+        vscode.commands.registerCommand('cody.debug.heapDump', () => dumpCodyHeapSnapshot())
     )
 }
 
@@ -738,11 +768,12 @@ function registerAutoEdits({
             combineLatest(
                 resolvedConfig,
                 authStatus,
-                featureFlagProvider.evaluateFeatureFlag(
+                featureFlagProvider.evaluatedFeatureFlag(
                     FeatureFlag.CodyAutoEditExperimentEnabledFeatureFlag
                 ),
-                featureFlagProvider.evaluateFeatureFlag(FeatureFlag.CodyAutoEditInlineRendering),
-                featureFlagProvider.evaluateFeatureFlag(
+                featureFlagProvider.evaluatedFeatureFlag(FeatureFlag.CodyAutoEditInlineRendering),
+                featureFlagProvider.evaluatedFeatureFlag(FeatureFlag.CodyAutoEditHotStreak),
+                featureFlagProvider.evaluatedFeatureFlag(
                     FeatureFlag.CodyAutoEditUseWebSocketForFireworksConnections
                 )
             )
@@ -760,6 +791,7 @@ function registerAutoEdits({
                             authStatus,
                             autoeditFeatureFlagEnabled,
                             autoeditInlineRenderingEnabled,
+                            autoeditHotStreakEnabled,
                             autoeditUseWebSocketEnabled,
                         ]) => {
                             return createAutoEditsProvider({
@@ -768,6 +800,7 @@ function registerAutoEdits({
                                 chatClient,
                                 autoeditFeatureFlagEnabled,
                                 autoeditInlineRenderingEnabled,
+                                autoeditHotStreakEnabled,
                                 autoeditUseWebSocketEnabled,
                                 fixupController,
                                 statusBar,
@@ -793,16 +826,6 @@ function registerAutocomplete(
     statusBar: CodyStatusBar,
     disposables: vscode.Disposable[]
 ): void {
-    const autoeditEnabledForClient =
-        isRunningInsideAgent() && clientCapabilities().autoedit === 'enabled'
-    if (autoeditEnabledForClient) {
-        // autoedit is a replacement for autocomplete for clients.
-        // We should not register both if the client has opted in for auto-edit.
-        // TODO: Eventually these should be consolidated so clients to not need to decide between
-        // autocomplete and autoedit.
-        return
-    }
-
     //@ts-ignore
     let statusBarLoader: undefined | (() => void) = statusBar.addLoader({
         title: 'Completion Provider is starting',

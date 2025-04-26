@@ -71,6 +71,7 @@ export type WebviewMessage =
           parameters: WebviewRecordEventParameters
       }
     | ({ command: 'submit' } & WebviewSubmitMessage)
+    | ({ command: 'regenerateCodeBlock' } & WebviewRegenerateCodeBlockMessage)
     | { command: 'restoreHistory'; chatID: string }
     | { command: 'links'; value: string }
     | { command: 'openURI'; uri: Uri; range?: RangeData | undefined | null }
@@ -196,6 +197,7 @@ export type ExtensionMessage =
       }
     | ({ type: 'transcript' } & ExtensionTranscriptMessage)
     | { type: 'view'; view: View }
+    | { type: 'rateLimit'; isRateLimited: boolean }
     | { type: 'errors'; errors: string }
     | {
           type: 'clientAction'
@@ -206,6 +208,11 @@ export type ExtensionMessage =
           submitHumanInput?: boolean | undefined | null
           setPromptAsInput?:
               | { text: string; mode?: PromptMode | undefined | null; autoSubmit: boolean }
+              | undefined
+              | null
+          regenerateStatus?:
+              | { id: string; status: 'regenerating' | 'done' }
+              | { id: string; status: 'error'; error: string }
               | undefined
               | null
       }
@@ -247,6 +254,13 @@ interface WebviewEditMessage extends WebviewContextMessage {
 
 interface WebviewContextMessage {
     contextItems?: ContextItem[] | undefined | null
+}
+
+interface WebviewRegenerateCodeBlockMessage {
+    id: string
+    code: string
+    language?: string | undefined | null
+    index: number
 }
 
 export interface ExtensionTranscriptMessage {

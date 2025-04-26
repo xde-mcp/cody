@@ -17,8 +17,6 @@ const PROPS: Omit<ComponentProps<typeof Transcript>, 'transcript'> = {
     postMessage: () => {},
     models: FIXTURE_MODELS,
     setActiveChatContext: () => {},
-    manuallySelectedIntent: undefined,
-    setManuallySelectedIntent: () => {},
     guardrails: new MockNoGuardrails(),
 }
 
@@ -422,9 +420,13 @@ function expectCells(expectedCells: CellMatcher[], containerElement?: HTMLElemen
 
 describe('transcriptToInteractionPairs', () => {
     test('empty transcript', () => {
-        expect(transcriptToInteractionPairs([], null, null)).toEqual<Interaction[]>([
+        expect(transcriptToInteractionPairs([], null)).toMatchObject<Interaction[]>([
             {
-                humanMessage: { index: 0, speaker: 'human', isUnsentFollowup: true, intent: undefined },
+                humanMessage: {
+                    index: 0,
+                    speaker: 'human',
+                    isUnsentFollowup: true,
+                },
                 assistantMessage: null,
             },
         ])
@@ -439,10 +441,9 @@ describe('transcriptToInteractionPairs', () => {
                     { speaker: 'human', text: ps`c` },
                     { speaker: 'assistant', text: ps`d` },
                 ],
-                null,
                 null
             )
-        ).toEqual<Interaction[]>([
+        ).toMatchObject<Interaction[]>([
             {
                 humanMessage: {
                     index: 0,
@@ -474,7 +475,11 @@ describe('transcriptToInteractionPairs', () => {
                 },
             },
             {
-                humanMessage: { index: 4, speaker: 'human', isUnsentFollowup: true, intent: null },
+                humanMessage: {
+                    index: 4,
+                    speaker: 'human',
+                    isUnsentFollowup: true,
+                },
                 assistantMessage: null,
             },
         ])
@@ -482,15 +487,11 @@ describe('transcriptToInteractionPairs', () => {
 
     test('assistant message is loading', () => {
         expect(
-            transcriptToInteractionPairs(
-                [{ speaker: 'human', text: ps`a` }],
-                {
-                    speaker: 'assistant',
-                    text: ps`b`,
-                },
-                null
-            )
-        ).toEqual<Interaction[]>([
+            transcriptToInteractionPairs([{ speaker: 'human', text: ps`a` }], {
+                speaker: 'assistant',
+                text: ps`b`,
+            })
+        ).toMatchObject<Interaction[]>([
             {
                 humanMessage: {
                     index: 0,
@@ -507,7 +508,11 @@ describe('transcriptToInteractionPairs', () => {
                 },
             },
             {
-                humanMessage: { index: 2, speaker: 'human', isUnsentFollowup: true, intent: null },
+                humanMessage: {
+                    index: 2,
+                    speaker: 'human',
+                    isUnsentFollowup: true,
+                },
                 assistantMessage: null,
             },
         ])
@@ -516,14 +521,10 @@ describe('transcriptToInteractionPairs', () => {
     test('last assistant message is error', () => {
         const error = errorToChatError(new Error('x'))
         expect(
-            transcriptToInteractionPairs(
-                [{ speaker: 'human', text: ps`a` }],
-                {
-                    speaker: 'assistant',
-                    error,
-                },
-                null
-            )
+            transcriptToInteractionPairs([{ speaker: 'human', text: ps`a` }], {
+                speaker: 'assistant',
+                error,
+            })
         ).toEqual<Interaction[]>([
             {
                 humanMessage: {

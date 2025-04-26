@@ -16,7 +16,6 @@ import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.fileTypes.FileTypeRegistry
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -24,16 +23,14 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.util.withScheme
+import com.intellij.util.io.createFile
 import com.sourcegraph.cody.agent.protocol_extensions.toOffsetRange
 import com.sourcegraph.cody.agent.protocol_generated.Range
 import com.sourcegraph.config.ConfigUtil
 import com.sourcegraph.utils.ThreadingUtil.runInEdtAndGet
 import java.net.URISyntaxException
-import kotlin.io.path.createDirectories
-import kotlin.io.path.createFile
-import kotlin.io.path.exists
-import kotlin.io.path.toPath
+import java.net.URLDecoder
+import kotlin.io.path.*
 
 object CodyEditorUtil {
   private val logger = Logger.getInstance(CodyEditorUtil::class.java)
@@ -62,24 +59,24 @@ object CodyEditorUtil {
   }
 
   @JvmStatic
-  fun getAllOpenEditors(): Set<Editor> {
-    return ProjectManager.getInstance()
-        .openProjects
-        .flatMap { project: Project -> FileEditorManager.getInstance(project).allEditors.toList() }
+  fun getAllOpenEditors(project: Project): Set<Editor> {
+    return FileEditorManager.getInstance(project)
+        .allEditors
+        .toList()
         .filterIsInstance<TextEditor>()
         .map { fileEditor: FileEditor -> (fileEditor as TextEditor).editor }
         .toSet()
   }
 
   @JvmStatic
-  fun getSelectedEditors(project: Project): Array<out Editor> {
-    if (project.isDisposed) return emptyArray()
-    return FileEditorManager.getInstance(project).selectedTextEditorWithRemotes
+  fun getSelectedEditors(project: Project): Set<Editor> {
+    if (project.isDisposed) return emptySet()
+    return FileEditorManager.getInstance(project).selectedTextEditorWithRemotes.toSet()
   }
 
   @JvmStatic
-  fun getEditorForDocument(document: Document): Editor? {
-    return getAllOpenEditors().find { it.document == document }
+  fun getEditorForDocument(project: Project, document: Document): Editor? {
+    return getAllOpenEditors(project).find { it.document == document }
   }
 
   @JvmStatic
@@ -179,18 +176,25 @@ object CodyEditorUtil {
     }
   }
 
-  fun findFileOrScratch(project: Project, uriString: String): VirtualFile? {
-    // IntelliJ does not support in-memory files so we are using scratch files instead
+  @JvmStatic
+  fun fixUriString(uriString: String): String {
     if (uriString.startsWith("untitled://")) {
-      val fileName = uriString.substringAfterLast(':').trimStart('/', '\\')
-      return ScratchRootType.getInstance()
-          .findFile(project, fileName, ScratchFileService.Option.existing_only)
+      // IntelliJ does not support in-memory files so we are using scratch files instead
+      return uriString.substringAfterLast(':').trimStart('/', '\\')
     } else {
       // Check `ProtocolTextDocumentExt.normalizeToVscUriFormat` for explanation
       val patchedUri = uriString.replace("file://wsl.localhost/", "file:////wsl.localhost/")
-      // Unfortunately we cannot use `findFileByUrl` directly and need to do uri -> path conversion
-      // because `findFileByUrl` cannot decode paths with special characters (e.g. file:///c%3a/...)
-      val uri = VfsUtil.toUri(patchedUri) ?: return null
+      return if (patchedUri.startsWith("file://")) patchedUri else "file://$patchedUri"
+    }
+  }
+
+  fun findFileOrScratch(project: Project, uriString: String): VirtualFile? {
+    val fixedUri = fixUriString(uriString)
+    if (uriString.startsWith("untitled://")) {
+      return ScratchRootType.getInstance()
+          .findFile(project, fixedUri, ScratchFileService.Option.existing_only)
+    } else {
+      val uri = VfsUtil.toUri(fixedUri) ?: return null
       return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(uri.toPath())
     }
   }
@@ -198,13 +202,14 @@ object CodyEditorUtil {
   fun createFileOrScratchFromUntitled(
       project: Project,
       uriString: String,
-      content: String? = null
+      content: String? = null,
+      overwrite: Boolean = false
   ): VirtualFile? {
     try {
-      val uri = VfsUtil.toUri(uriString) ?: return null
-      val fileUri = uri.withScheme("file")
-      if (!fileUri.toPath().exists()) {
+      val fileUri = VfsUtil.toUri(fixUriString(uriString)) ?: return null
+      if (overwrite || fileUri.toPath().notExists()) {
         fileUri.toPath().parent?.createDirectories()
+        fileUri.toPath().deleteIfExists()
         fileUri.toPath().createFile()
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(fileUri.toPath())
 
@@ -223,7 +228,7 @@ object CodyEditorUtil {
       return ScratchRootType.getInstance()
           .createScratchFile(
               project,
-              fileName,
+              URLDecoder.decode(fileName, "UTF-8"),
               language,
               content ?: "",
               ScratchFileService.Option.create_if_missing)

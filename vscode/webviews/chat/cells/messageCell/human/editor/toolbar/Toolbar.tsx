@@ -40,12 +40,13 @@ export const Toolbar: FunctionComponent<{
     className?: string
 
     intent?: ChatMessage['intent']
-    manuallySelectIntent: (intent: ChatMessage['intent']) => void
 
     extensionAPI: WebviewToExtensionAPI
 
     omniBoxEnabled: boolean
     onMediaUpload?: (mediaContextItem: ContextItemMedia) => void
+
+    setLastManuallySelectedIntent: (intent: ChatMessage['intent']) => void
 }> = ({
     userInfo,
     isEditorFocused,
@@ -57,10 +58,10 @@ export const Toolbar: FunctionComponent<{
     className,
     models,
     intent,
-    manuallySelectIntent,
     extensionAPI,
     omniBoxEnabled,
     onMediaUpload,
+    setLastManuallySelectedIntent,
 }) => {
     /**
      * If the user clicks in a gap or on the toolbar outside of any of its buttons, report back to
@@ -146,7 +147,7 @@ export const Toolbar: FunctionComponent<{
                     _intent={intent}
                     isDotComUser={userInfo?.isDotComUser}
                     isCodyProUser={userInfo?.isCodyProUser}
-                    manuallySelectIntent={manuallySelectIntent}
+                    manuallySelectIntent={setLastManuallySelectedIntent}
                 />
                 <ModelSelectFieldToolbarItem
                     models={models}
@@ -193,6 +194,17 @@ const ModelSelectFieldToolbarItem: FunctionComponent<{
 }> = ({ userInfo, focusEditor, className, models, extensionAPI, modelSelectorRef, intent }) => {
     const clientConfig = useClientConfig()
     const serverSentModelsEnabled = !!clientConfig?.modelsAPIEnabled
+
+    const agenticModel = useMemo(() => models.find(m => m.tags.includes(ModelTag.Default)), [models])
+
+    // If in agentic mode, ensure the agentic model is selected
+    useEffect(() => {
+        if (intent === 'agentic' && agenticModel && models[0]?.id !== agenticModel.id) {
+            extensionAPI.setChatModel(agenticModel.id).subscribe({
+                error: error => console.error('Failed to set chat model:', error),
+            })
+        }
+    }, [intent, agenticModel, models, extensionAPI.setChatModel])
 
     const onModelSelect = useCallback(
         (model: Model) => {
