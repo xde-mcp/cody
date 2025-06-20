@@ -39,6 +39,29 @@ import {
     contextItemMentionFromOpenCtxItem,
 } from './context/chatContext'
 
+type DefaultContextPolicy = 'full' | 'empty'
+let currentDefaultContextPolicy: DefaultContextPolicy = 'full'
+
+export function requestEmptyDefaultContext(): void {
+    currentDefaultContextPolicy = 'empty'
+}
+
+// Get an empty or default context observable
+export function getEmptyOrDefaultContextObservable({
+    chatBuilder,
+}: {
+    chatBuilder: Observable<ChatBuilder>
+}): Observable<DefaultContext | typeof pendingOperation> {
+    // Capture and reset policy
+    const policy = currentDefaultContextPolicy
+    if (policy === 'empty') {
+        currentDefaultContextPolicy = 'full'
+        return Observable.of({ initialContext: [], corpusContext: [] })
+    }
+
+    return observeDefaultContext({ chatBuilder }).pipe(shareReplay())
+}
+
 /**
  * Observe the initial context that should be populated in the chat message input field.
  */
@@ -211,24 +234,21 @@ export function getCorpusContextItemsForEditorState(): Observable<
         abortableOperation(async ([authStatus, remoteReposForAllWorkspaceFolders], signal) => {
             const items: ContextItem[] = []
 
-            // Local context is not available to enterprise users
-            if (!authStatus.isEnterpriseUser) {
-                // TODO(sqs): Support multi-root. Right now, this only supports the 1st workspace root.
-                const workspaceFolder = vscode.workspace.workspaceFolders?.at(0)
+            // TODO(sqs): Support multi-root. Right now, this only supports the 1st workspace root.
+            const workspaceFolder = vscode.workspace.workspaceFolders?.at(0)
 
-                if (workspaceFolder) {
-                    items.push({
-                        type: 'tree',
-                        uri: workspaceFolder.uri,
-                        title: 'Current Repository',
-                        name: workspaceFolder.name,
-                        description: workspaceFolder.name,
-                        isWorkspaceRoot: true,
-                        content: null,
-                        source: ContextItemSource.Initial,
-                        icon: 'folder',
-                    } satisfies ContextItemTree)
-                }
+            if (workspaceFolder) {
+                items.push({
+                    type: 'tree',
+                    uri: workspaceFolder.uri,
+                    title: 'Current Repository',
+                    name: workspaceFolder.name,
+                    description: workspaceFolder.name,
+                    isWorkspaceRoot: true,
+                    content: null,
+                    source: ContextItemSource.Initial,
+                    icon: 'folder',
+                } satisfies ContextItemTree)
             }
 
             // TODO(sqs): Make this consistent between self-serve (no remote search) and enterprise (has

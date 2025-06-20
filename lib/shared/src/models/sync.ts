@@ -432,6 +432,7 @@ export function syncModels({
                                                     }
                                                     return model
                                                 })
+
                                                 return Observable.of(data)
                                             }
                                         )

@@ -386,7 +386,7 @@ describe('syncModels', () => {
         }
     )
 
-    it('not to set Agentic Chat as default chat model when feature flag is enabled', async () => {
+    it('Agentic Chat does not show up in the model dropdown even if the old feature flag is enabled', async () => {
         const serverSonnet: ServerModel = {
             modelRef: 'anthropic::unknown::claude-3-5-sonnet',
             displayName: 'Sonnet',
