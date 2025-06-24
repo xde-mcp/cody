@@ -9,13 +9,11 @@ data class ClientCapabilities(
   val autoedit: AutoeditEnum? = null, // Oneof: none, enabled
   val autoeditInlineDiff: AutoeditInlineDiffEnum? = null, // Oneof: none, insertions-only, deletions-only, insertions-and-deletions
   val autoeditAsideDiff: AutoeditAsideDiffEnum? = null, // Oneof: none, image, diff
-  val autoeditSuggestToEnroll: AutoeditSuggestToEnrollEnum? = null, // Oneof: none, enabled
   val chat: ChatEnum? = null, // Oneof: none, streaming
   val git: GitEnum? = null, // Oneof: none, enabled
   val progressBars: ProgressBarsEnum? = null, // Oneof: none, enabled
   val edit: EditEnum? = null, // Oneof: none, enabled
   val editWorkspace: EditWorkspaceEnum? = null, // Oneof: none, enabled
-  val untitledDocuments: UntitledDocumentsEnum? = null, // Oneof: none, enabled
   val showDocument: ShowDocumentEnum? = null, // Oneof: none, enabled
   val codeLenses: CodeLensesEnum? = null, // Oneof: none, enabled
   val showWindowMessage: ShowWindowMessageEnum? = null, // Oneof: notification, request
@@ -59,11 +57,6 @@ data class ClientCapabilities(
     @SerializedName("diff") Diff,
   }
 
-  enum class AutoeditSuggestToEnrollEnum {
-    @SerializedName("none") None,
-    @SerializedName("enabled") Enabled,
-  }
-
   enum class ChatEnum {
     @SerializedName("none") None,
     @SerializedName("streaming") Streaming,
@@ -85,11 +78,6 @@ data class ClientCapabilities(
   }
 
   enum class EditWorkspaceEnum {
-    @SerializedName("none") None,
-    @SerializedName("enabled") Enabled,
-  }
-
-  enum class UntitledDocumentsEnum {
     @SerializedName("none") None,
     @SerializedName("enabled") Enabled,
   }

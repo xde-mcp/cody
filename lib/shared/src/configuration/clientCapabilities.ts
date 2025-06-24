@@ -90,12 +90,6 @@ export interface ClientCapabilities {
     autoeditAsideDiff?: 'none' | 'image' | 'diff'
 
     /**
-     * This capability is responsible for displaying a notification with a suggestion to switch
-     * suggestions mode from autocomplete to autoedit if applicable.
-     */
-    autoeditSuggestToEnroll?: 'none' | 'enabled' | undefined | null
-
-    /**
      * When 'streaming', handles 'chat/updateMessageInProgress' streaming notifications.
      */
     chat?: 'none' | 'streaming' | undefined | null
@@ -114,7 +108,6 @@ export interface ClientCapabilities {
 
     edit?: 'none' | 'enabled' | undefined | null
     editWorkspace?: 'none' | 'enabled' | undefined | null
-    untitledDocuments?: 'none' | 'enabled' | undefined | null
     showDocument?: 'none' | 'enabled' | undefined | null
     codeLenses?: 'none' | 'enabled' | undefined | null
     showWindowMessage?: 'notification' | 'request' | undefined | null
