@@ -41,7 +41,6 @@ import type {
     ClientInfo,
     CreateFileOperation,
     DebugMessage,
-    DeleteFileOperation,
     ExtensionConfiguration,
     NetworkRequest,
     Position,
@@ -50,7 +49,6 @@ import type {
     ProtocolCodeLens,
     ProtocolTextDocument,
     Range,
-    RenameFileOperation,
     ServerInfo,
     ShowWindowMessageParams,
     TextDocumentEditParams,
@@ -273,8 +271,6 @@ export class TestClient extends MessageHandler {
             // debugging something that should have been done the Right Way
             // from the start.
             let result = true
-            const deletedFiles: DeleteFileOperation[] = []
-            const renamedFiles: RenameFileOperation[] = []
             const createdFiles: CreateFileOperation[] = []
             for (const operation of params.operations) {
                 if (operation.type === 'edit-file') {
@@ -299,46 +295,11 @@ export class TestClient extends MessageHandler {
                     await fspromises.mkdir(path.dirname(fspath), { recursive: true })
                     await fspromises.writeFile(fspath, operation.textContents)
                     createdFiles.push(operation)
-                } else if (operation.type === 'delete-file') {
-                    if (!(await doesFileExist(vscode.Uri.parse(operation.uri)))) {
-                        result = false
-                        continue
-                    }
-                    await fspromises.unlink(vscode.Uri.file(operation.uri).fsPath)
-                    deletedFiles.push(operation)
-                } else if (operation.type === 'rename-file') {
-                    if (!(await doesFileExist(vscode.Uri.parse(operation.oldUri)))) {
-                        continue
-                    }
-                    const newFileExists = await doesFileExist(vscode.Uri.parse(operation.newUri))
-                    if (operation.options?.ignoreIfExists && newFileExists) {
-                        continue
-                    }
-                    if (!operation.options?.overwrite && newFileExists) {
-                        logError(
-                            'workspace/edit',
-                            "can't rename into new URI that already exists and options.overwrite=false",
-                            operation.newUri
-                        )
-                        continue
-                    }
-                    const newPath = vscode.Uri.file(operation.newUri).fsPath
-                    await fspromises.mkdir(path.dirname(newPath), { recursive: true })
-                    await fspromises.rename(vscode.Uri.file(operation.oldUri).fsPath, newPath)
-                    renamedFiles.push(operation)
                 }
             }
 
             if (createdFiles.length > 0) {
                 this.notify('workspace/didCreateFiles', { files: createdFiles })
-            }
-
-            if (deletedFiles.length > 0) {
-                this.notify('workspace/didDeleteFiles', { files: deletedFiles })
-            }
-
-            if (renamedFiles.length > 0) {
-                this.notify('workspace/didRenameFiles', { files: renamedFiles })
             }
 
             return result
@@ -824,7 +785,7 @@ ${patch}`
         mockLocalStorage('inMemory')
         const info = await this.initialize(additionalConfig)
         if (expectAuthenticated && !info.authStatus?.authenticated) {
-            throw new Error('Could not log in')
+            throw new Error('Could not log in. Auth status: ' + JSON.stringify(info.authStatus))
         }
     }
     public async afterAll() {
@@ -838,7 +799,11 @@ ${patch}`
             )
             if (missingRecordingErrors.length > 0) {
                 for (const error of missingRecordingErrors) {
-                    await this.printDiffAgainstClosestMatchingRecording(error)
+                    try {
+                        await this.printDiffAgainstClosestMatchingRecording(error)
+                    } catch (error) {
+                        console.error('Error printing diff:', error)
+                    }
                 }
                 const errorMessage = missingRecordingErrors[0].error?.split?.('\n')?.[0]
                 throw new Error(
@@ -904,7 +869,14 @@ ${patch}`
         })
     }
 
-    private getClientInfo(capabilities: ClientCapabilities = allClientCapabilitiesEnabled): ClientInfo {
+    private defultTestClientCapabilities: ClientCapabilities = {
+        ...allClientCapabilitiesEnabled,
+        secrets: 'stateless',
+    }
+
+    private getClientInfo(
+        capabilities: ClientCapabilities = this.defultTestClientCapabilities
+    ): ClientInfo {
         return {
             name: this.name,
             version: 'v1',
@@ -912,9 +884,7 @@ ${patch}`
             workspaceRootPath: this.params.workspaceRootUri.fsPath,
             capabilities: {
                 ...capabilities,
-                // The test client doesn't implement secrets/didChange, so we need to use the
-                // stateless secrets store.
-                secrets: 'stateless',
+                secrets: capabilities.secrets ?? 'stateless',
             },
             extensionConfiguration: {
                 anonymousUserID: `${this.name}abcde1234`,

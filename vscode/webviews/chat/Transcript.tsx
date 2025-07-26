@@ -53,6 +53,7 @@ interface TranscriptProps {
     activeChatContext?: Context
     setActiveChatContext: (context: Context | undefined) => void
     chatEnabled: boolean
+    chatCodeHighlightingEnabled: boolean
     transcript: ChatMessage[]
     tokenUsage?:
         | {
@@ -95,6 +96,7 @@ export const Transcript: FC<TranscriptProps> = props => {
         activeChatContext,
         setActiveChatContext,
         chatEnabled,
+        chatCodeHighlightingEnabled,
         transcript,
         tokenUsage,
         models,
@@ -219,6 +221,7 @@ export const Transcript: FC<TranscriptProps> = props => {
                     tokenUsage={tokenUsage}
                     models={models}
                     chatEnabled={chatEnabled}
+                    chatCodeHighlightingEnabled={chatCodeHighlightingEnabled}
                     userInfo={userInfo}
                     guardrails={guardrails}
                     postMessage={postMessage}
@@ -250,6 +253,7 @@ export const Transcript: FC<TranscriptProps> = props => {
             tokenUsage,
             models,
             chatEnabled,
+            chatCodeHighlightingEnabled,
             userInfo,
             guardrails,
             postMessage,
@@ -400,6 +404,7 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
         priorAssistantMessageIsLoading,
         userInfo,
         chatEnabled,
+        chatCodeHighlightingEnabled,
         postMessage,
         guardrails,
         insertButtonOnSubmit,
@@ -687,7 +692,7 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
 
     const onRegenerate = useCallback(
         (code: string, language?: string) => {
-            if (assistantMessage) {
+            if (assistantMessage?.index) {
                 const id = uuid.v4()
                 regenerateCodeBlock({ id, code, language, index: assistantMessage.index })
                 setRegeneratingCodeBlocks(blocks => [
@@ -698,7 +703,7 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                 console.warn('tried to regenerate a code block, but there is no assistant message')
             }
         },
-        [assistantMessage]
+        [assistantMessage?.index]
     )
 
     const isAgenticMode = useMemo(
@@ -771,6 +776,7 @@ const TranscriptInteraction: FC<TranscriptInteractionProps> = memo(props => {
                         userInfo={userInfo}
                         models={models}
                         chatEnabled={chatEnabled}
+                        chatCodeHighlightingEnabled={chatCodeHighlightingEnabled}
                         message={assistantMessage}
                         copyButtonOnSubmit={copyButtonOnSubmit}
                         insertButtonOnSubmit={insertButtonOnSubmit}
