@@ -427,6 +427,13 @@
         "enablement": "cody.activated"
       },
       {
+        "command": "cody.chat.history.export.all",
+        "category": "Cody",
+        "title": "Export All Chats as JSON (No Auth Required)",
+        "group": "Cody",
+        "icon": "$(export)"
+      },
+      {
         "command": "cody.chat.history.panel",
         "category": "Cody",
         "title": "Chat History",
