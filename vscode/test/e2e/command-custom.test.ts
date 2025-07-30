@@ -10,17 +10,14 @@ import {
     sidebarSignin,
 } from './common'
 import {
-    type DotcomUrlOverride,
     type ExpectedV2Events,
-    test as baseTest,
     executeCommandInPalette,
     openCodyCommandsQuickPick,
     openCustomCommandMenu,
+    test,
     withPlatformSlashes,
 } from './helpers'
 import { testGitWorkspace } from './utils/gitWorkspace'
-
-const test = baseTest.extend<DotcomUrlOverride>({ dotcomUrl: mockServer.SERVER_URL })
 
 test.beforeEach(() => {
     mockServer.resetLoggedEvents()

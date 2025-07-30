@@ -183,7 +183,7 @@ test.extend<DotcomUrlOverride>({ dotcomUrl: mockServer.SERVER_URL })
         await expect(humanRow0.toolbar.submit).not.toBeVisible()
     })
 
-test.extend<DotcomUrlOverride>({ dotcomUrl: mockServer.SERVER_URL }).extend<ExpectedV2Events>({
+test.extend<ExpectedV2Events>({
     expectedV2Events: [
         'cody.extension:installed',
         'cody.auth.login:firstEver',

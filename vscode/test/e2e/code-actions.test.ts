@@ -1,5 +1,4 @@
 import { type Page, expect } from '@playwright/test'
-import * as mockServer from '../fixtures/mock-server'
 
 import {
     focusSidebar,
@@ -9,14 +8,7 @@ import {
     sidebarExplorer,
     sidebarSignin,
 } from './common'
-import {
-    type DotcomUrlOverride,
-    type ExpectedV2Events,
-    test as baseTest,
-    executeCommandInPalette,
-} from './helpers'
-
-const test = baseTest.extend<DotcomUrlOverride>({ dotcomUrl: mockServer.SERVER_URL })
+import { type ExpectedV2Events, executeCommandInPalette, test } from './helpers'
 
 const ERROR_DECORATION_SELECTOR = 'div.view-overlays[role="presentation"] div[class*="squiggly-error"]'
 
