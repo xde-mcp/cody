@@ -22,7 +22,7 @@ import org.junit.Assert.fail
 class EditCodeFixture(recordingName: String) :
     BaseIntegrationTextFixture(
         recordingName,
-        credentials = TestingCredentials.dotcom,
+        credentials = TestingCredentials.s2,
         CodyAgentService.clientCapabilities.copy(
             globalState = ClientCapabilities.GlobalStateEnum.Stateless)),
     LensListener {
